@@ -53,6 +53,15 @@ final class Linter
                     || str_starts_with($trimmed, '/*') || str_starts_with($trimmed, '#')) {
                     continue;
                 }
+                // Inline suppression: `lint:allow <rule-id>` in a trailing
+                // comment skips that rule for this line. For deliberate
+                // exceptions the rules cannot see - e.g. a hyphenated getUrl
+                // segment that matches another module's explicit #[Route]
+                // path. Always pair with a WHY in the same comment.
+                $allow = [];
+                if (preg_match_all('/lint:allow\s+([a-z-]+)/', $line, $am)) {
+                    $allow = $am[1];
+                }
                 // zend-classes (allow the DBAL BC alias Zend_Db_Expr; ban the rest)
                 if (preg_match('/\bnew\s+Zend_(?!Db_Expr\b)[A-Za-z_]+|\bZend_(?!Db_Expr\b)[A-Za-z_]+::/', $line)) {
                     $findings[] = $this->finding('zend-classes', 'critical', $rel, $n,
@@ -72,7 +81,8 @@ final class Linter
                         'use Mage_Core_Model_Locale::nowUtc() / formatDateForDb()');
                 }
                 // hyphen-action-url: getUrl('front/controller/act-ion') - hyphen or underscore in 3rd+ segment
-                if (preg_match('/getUrl\(\s*[\'"]([^\'"]+)[\'"]/', $line, $m)) {
+                if (!in_array('hyphen-action-url', $allow, true)
+                    && preg_match('/getUrl\(\s*[\'"]([^\'"]+)[\'"]/', $line, $m)) {
                     $segments = explode('/', trim($m[1], '/'));
                     if (count($segments) >= 3) {
                         $action = $segments[2];
@@ -152,7 +162,17 @@ final class Linter
             // `#[\Maho\Config\Route(` / `#[Maho\Config\Route(` - matching on
             // the short form only produced false criticals on modules using
             // the FQ attribute syntax.
-            if ($isController && preg_match('/function\s+[a-zA-Z0-9]+Action\s*\(/', $src)
+            // EXEMPT override controllers: a class extending another CONCRETE
+            // controller (not the abstract Action bases) is a module-chain
+            // override - requests reach it via the overridden controller's
+            // routes + the dispatcher's resolveControllerClass() chain, and
+            // declaring a duplicate #[Route] for the same path would conflict.
+            $isOverrideController = preg_match(
+                '/class\s+[A-Za-z0-9_]+\s+extends\s+(?!Mage_Core_Controller_Front_Action\b|Mage_Adminhtml_Controller_Action\b|Mage_Core_Controller_Varien_Action\b|Mage_Api_Controller_Action\b)[A-Za-z0-9_]*Controller\b/',
+                $src,
+            ) === 1;
+            if ($isController && !$isOverrideController
+                && preg_match('/function\s+[a-zA-Z0-9]+Action\s*\(/', $src)
                 && !preg_match('/#\[\\\\?(Maho\\\\Config\\\\)?Route\(/', $src)) {
                 $findings[] = $this->finding('route-attributes', 'critical', $rel, 1,
                     'controller has actions but no #[Maho\\Config\\Route] attributes (legacy XML routing NOTICE on every request)',
