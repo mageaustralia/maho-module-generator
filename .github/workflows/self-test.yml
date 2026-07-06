@@ -60,3 +60,22 @@ jobs:
             echo "guard failed - accepted a non-module dir"; exit 1
           fi
           echo "guard OK"
+
+      - name: Audit - pristine module is all-identical (exit 0)
+        run: php bin/maho-module-gen audit specs/example-testimonials.yaml /tmp/gen
+
+      - name: Audit - missing file fails, drift is informational unless opted in
+        run: |
+          set -e
+          echo "// hand edit" >> /tmp/gen/README.md
+          rm /tmp/gen/.gitignore
+          if php bin/maho-module-gen audit specs/example-testimonials.yaml /tmp/gen --no-diff; then
+            echo "audit should fail on a missing file"; exit 1
+          fi
+          # restore the missing file; drifted README remains
+          php bin/maho-module-gen generate specs/example-testimonials.yaml --into /tmp/gen > /dev/null
+          php bin/maho-module-gen audit specs/example-testimonials.yaml /tmp/gen --no-diff   # drift alone: exit 0
+          if php bin/maho-module-gen audit specs/example-testimonials.yaml /tmp/gen --no-diff --fail-on-drift; then
+            echo "--fail-on-drift should have failed"; exit 1
+          fi
+          echo "audit exit-code matrix OK"
