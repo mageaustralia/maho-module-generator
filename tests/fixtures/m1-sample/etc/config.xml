@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<!-- Synthetic Magento 1 fixture for extractor tests. Written from scratch;
+     not derived from any real module. -->
+<config>
+    <modules>
+        <Acme_Gadgets>
+            <version>1.2.3</version>
+        </Acme_Gadgets>
+    </modules>
+    <global>
+        <models>
+            <gadgets>
+                <class>Acme_Gadgets_Model</class>
+                <resourceModel>gadgets_resource</resourceModel>
+            </gadgets>
+            <gadgets_resource>
+                <class>Acme_Gadgets_Model_Resource</class>
+                <entities>
+                    <gadget><table>acme_gadget</table></gadget>
+                    <gadget_log><table>acme_gadget_log</table></gadget_log>
+                </entities>
+            </gadgets_resource>
+        </models>
+        <template>
+            <email>
+                <gadgets_gadget_alert>
+                    <label>Gadget stock alert</label>
+                    <file>gadgets/gadget_alert.html</file>
+                    <type>html</type>
+                </gadgets_gadget_alert>
+            </email>
+        </template>
+        <events>
+            <catalog_product_save_after>
+                <observers>
+                    <gadgets><class>gadgets/observer</class><method>onProductSave</method></gadgets>
+                </observers>
+            </catalog_product_save_after>
+        </events>
+    </global>
+    <frontend>
+        <routers>
+            <gadgets>
+                <use>standard</use>
+                <args>
+                    <module>Acme_Gadgets</module>
+                    <frontName>gadgets</frontName>
+                </args>
+            </gadgets>
+        </routers>
+    </frontend>
+    <admin>
+        <routers>
+            <adminhtml>
+                <args>
+                    <modules>
+                        <acme_gadgets before="Mage_Adminhtml">Acme_Gadgets_Adminhtml</acme_gadgets>
+                    </modules>
+                </args>
+            </adminhtml>
+        </routers>
+    </admin>
+</config>

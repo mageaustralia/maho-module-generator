@@ -22,6 +22,7 @@ foreach ([
 
 use MahoModuleGenerator\Cli\GenerateCommand;
 use MahoModuleGenerator\Cli\AuditCommand;
+use MahoModuleGenerator\Cli\ExtractCommand;
 use MahoModuleGenerator\Cli\LintCommand;
 use Symfony\Component\Console\Application;
 
@@ -29,4 +30,5 @@ $app = new Application('maho-module-gen', '0.1.0');
 $app->add(new GenerateCommand());
 $app->add(new LintCommand());
 $app->add(new AuditCommand());
+$app->add(new ExtractCommand());
 $app->run();

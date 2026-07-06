@@ -79,3 +79,12 @@ jobs:
             echo "--fail-on-drift should have failed"; exit 1
           fi
           echo "audit exit-code matrix OK"
+
+      - name: M1 clean-room round-trip - extract fixture, spec must parse + generate + self-lint
+        run: |
+          set -e
+          php bin/maho-module-gen extract tests/fixtures/m1-sample --out /tmp/extracted.yaml
+          php bin/maho-module-gen generate /tmp/extracted.yaml --out /tmp/roundtrip
+          find /tmp/roundtrip -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+          php bin/maho-module-gen lint /tmp/roundtrip
+          echo "clean-room round-trip OK"
