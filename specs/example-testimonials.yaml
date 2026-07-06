@@ -1,0 +1,45 @@
+# Annotated reference spec for maho-module-gen.
+# Minimal viable spec is just: module.vendor, module.name, one entity.
+# Everything else has sensible defaults.
+
+module:
+  vendor: MageAustralia          # PascalCase - becomes the class prefix vendor
+  name: Testimonials             # PascalCase - module = MageAustralia_Testimonials
+  version: 0.1.0                 # default 0.1.0
+  # alias: testimonials          # default: lowercase(name) - helper/model/block alias
+  # front_name: testimonials     # default: kebab-case(name) - the storefront URL prefix
+  # code_pool: community         # default community
+  copyright: Mage Australia
+  depends: [Mage_Core]
+
+entities:
+  testimonial:
+    # table: mageaustralia_testimonial   # default: lowercase(vendor)_entityname
+    # timestamps: true                   # default true - adds created_at/updated_at + _beforeSave stamping
+    comment: Customer testimonials
+    columns:
+      # a primary key (testimonial_id) is auto-injected if you don't declare one
+      author_name:  {type: string, length: 128, notnull: true}
+      author_email: {type: string, length: 255, notnull: true}
+      content:      {type: text, notnull: true, comment: "The testimonial body"}
+      rating:       {type: smallint, unsigned: true, notnull: true, default: 5, comment: "1-5 stars"}
+      is_active:    {type: boolean, notnull: true, default: 0, comment: "Shown on the storefront once approved"}
+    unique: []
+    indexes: [is_active]
+
+frontend:
+  controllers:
+    index:
+      actions:
+        index: {methods: [GET]}          # route defaults to /testimonials
+        submit: {methods: [POST]}        # POST actions get _validateFormKey() scaffolded
+
+admin:
+  menu: {parent: cms, title: Testimonials, sort_order: 120}
+  acl_title: Testimonials
+  # grid_entity: testimonial             # default: first declared entity
+
+emails:
+  admin_new_testimonial:
+    subject: "New testimonial from {{var author_name}}"
+    vars: [author_name, author_email, rating, content_html, review_url]

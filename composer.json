@@ -1,0 +1,21 @@
+{
+    "name": "mageaustralia/maho-module-generator",
+    "description": "Generate best-practice Maho modules from a declarative YAML spec, and lint existing modules against the same rules. Spec-first, pure-library core (no Maho boot required) so the same engine can back a CLI, a web service, or an M1 clean-room converter.",
+    "license": "OSL-3.0",
+    "type": "library",
+    "keywords": ["maho", "generator", "scaffold", "module", "lint"],
+    "require": {
+        "php": ">=8.3",
+        "symfony/console": "^7.0",
+        "symfony/yaml": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MahoModuleGenerator\\": "src/"
+        }
+    },
+    "bin": ["bin/maho-module-gen"],
+    "authors": [
+        {"name": "Mage Australia", "homepage": "https://mageaustralia.com.au"}
+    ]
+}

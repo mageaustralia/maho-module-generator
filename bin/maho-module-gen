@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Maho Module Generator
+ *
+ * @copyright  Copyright (c) 2026 Mage Australia
+ * @license    https://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
+ */
+
+declare(strict_types=1);
+
+foreach ([
+    __DIR__ . '/../vendor/autoload.php',       // repo checkout
+    __DIR__ . '/../../../autoload.php',        // installed as a dep
+] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+use MahoModuleGenerator\Cli\GenerateCommand;
+use MahoModuleGenerator\Cli\LintCommand;
+use Symfony\Component\Console\Application;
+
+$app = new Application('maho-module-gen', '0.1.0');
+$app->add(new GenerateCommand());
+$app->add(new LintCommand());
+$app->run();

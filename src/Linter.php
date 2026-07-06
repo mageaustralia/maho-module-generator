@@ -1,0 +1,203 @@
+<?php
+
+/**
+ * Maho Module Generator
+ *
+ * @copyright  Copyright (c) 2026 Mage Australia
+ * @license    https://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
+ */
+
+declare(strict_types=1);
+
+namespace MahoModuleGenerator;
+
+/**
+ * Pattern lint for existing Maho modules - generated OR hand-written.
+ * Each rule corresponds to a bug class actually hit in production module
+ * work; see DESIGN.md for the incident behind each one.
+ */
+final class Linter
+{
+    /**
+     * @return list<array{rule: string, severity: string, file: string, line: int, message: string, fix: string}>
+     */
+    public function lint(string $moduleDir): array
+    {
+        if (!is_dir($moduleDir)) {
+            throw new SpecException("not a directory: $moduleDir");
+        }
+        $findings = [];
+        foreach ($this->phpFiles($moduleDir) as $file) {
+            $rel = ltrim(substr($file, strlen($moduleDir)), '/');
+            // Legacy sql/{name}_setup / data/{name}_setup scripts are frozen
+            // BC artifacts - they intentionally keep the old APIs so old-core
+            // installs keep working. Don't nag on every lint.
+            if (preg_match('#/(sql|data)/[a-z0-9_]+_setup/#', "/$rel")) {
+                continue;
+            }
+            $src = (string) file_get_contents($file);
+            $lines = explode("\n", $src);
+            $isController = str_contains($rel, 'controllers/') && str_ends_with($rel, 'Controller.php');
+            $isAdminController = $isController && str_contains($rel, 'Adminhtml');
+            $isSchema = str_ends_with($rel, 'sql/schema.php');
+            $isBlock = str_contains($rel, '/Block/');
+
+            foreach ($lines as $i => $line) {
+                $n = $i + 1;
+                // Comment lines never carry executable findings.
+                $trimmed = ltrim($line);
+                if (str_starts_with($trimmed, '*') || str_starts_with($trimmed, '//')
+                    || str_starts_with($trimmed, '/*') || str_starts_with($trimmed, '#')) {
+                    continue;
+                }
+                // zend-classes (allow the DBAL BC alias Zend_Db_Expr; ban the rest)
+                if (preg_match('/\bnew\s+Zend_(?!Db_Expr\b)[A-Za-z_]+|\bZend_(?!Db_Expr\b)[A-Za-z_]+::/', $line)) {
+                    $findings[] = $this->finding('zend-classes', 'critical', $rel, $n,
+                        'Zend framework class used (removed from Maho)',
+                        'use the Maho\\* / Symfony replacement (mail: Mage_Core_Model_Email_Template::send())');
+                }
+                // varien-classes (constructor/static use, not docblocks)
+                if (preg_match('/\bnew\s+Varien_(?!Object\b)[A-Za-z_]+|\bVarien_(?!Object\b)[A-Za-z_]+::/', $line)) {
+                    $findings[] = $this->finding('varien-classes', 'warning', $rel, $n,
+                        'Varien_* class used where a Maho\\* replacement exists',
+                        'Varien_X_Y -> Maho\\X\\Y (Varien_Object -> Maho\\DataObject is allowed as BC alias)');
+                }
+                // legacy-date
+                if (preg_match('/Mage_Core_Model_Date\b|Mage_Core_Model_Locale::now\(\)|getModel\([\'"]core\/date[\'"]\)/', $line)) {
+                    $findings[] = $this->finding('legacy-date', 'warning', $rel, $n,
+                        'deprecated date API',
+                        'use Mage_Core_Model_Locale::nowUtc() / formatDateForDb()');
+                }
+                // hyphen-action-url: getUrl('front/controller/act-ion') - hyphen or underscore in 3rd+ segment
+                if (preg_match('/getUrl\(\s*[\'"]([^\'"]+)[\'"]/', $line, $m)) {
+                    $segments = explode('/', trim($m[1], '/'));
+                    if (count($segments) >= 3) {
+                        $action = $segments[2];
+                        if ($action !== '*' && preg_match('/[-_]/', $action)) {
+                            $findings[] = $this->finding('hyphen-action-url', 'critical', $rel, $n,
+                                "getUrl action segment '$action' contains hyphen/underscore",
+                                'Maho matches action segments as camelCase method names: add-to-cart -> addToCart');
+                        }
+                    }
+                }
+                // escape-htmlattr
+                if (str_contains($line, 'escapeHtmlAttr(')) {
+                    $findings[] = $this->finding('escape-htmlattr', 'critical', $rel, $n,
+                        'escapeHtmlAttr() does not exist in Maho (silent output loss via __call)',
+                        'use escapeHtml() for attributes');
+                }
+                // unique-constraint-ddl
+                if ($isSchema && str_contains($line, 'addUniqueConstraint(')) {
+                    $findings[] = $this->finding('unique-constraint-ddl', 'warning', $rel, $n,
+                        'addUniqueConstraint drifts against legacy-created tables (differ drops the index; FKs then abort)',
+                        'use addUniqueIndex()');
+                }
+                // raw-json (module code, not templates or generated schema)
+                if (!$isSchema && preg_match('/\bjson_(en|de)code\s*\(/', $line)) {
+                    $findings[] = $this->finding('raw-json', 'nit', $rel, $n,
+                        'raw json_encode/json_decode',
+                        "Mage::helper('core')->jsonEncode()/jsonDecode() respects module overrides + throws on bad input");
+                }
+            }
+
+            // strict-types (file-level)
+            if (!str_contains($src, 'declare(strict_types=1)')) {
+                $findings[] = $this->finding('strict-types', 'warning', $rel, 1,
+                    'missing declare(strict_types=1)',
+                    'add after the file header');
+            }
+
+            // case-mismatch (file-level): every declared class tail must equal the basename
+            if (preg_match_all('/^(?:final\s+|abstract\s+)?class\s+([A-Za-z0-9_]+)/m', $src, $mm)) {
+                $base = basename($file, '.php');
+                foreach ($mm[1] as $class) {
+                    $tail = str_contains($class, '_') ? substr($class, strrpos($class, '_') + 1) : $class;
+                    if ($tail !== $base && strcasecmp($tail, $base) === 0) {
+                        $findings[] = $this->finding('case-mismatch', 'critical', $rel, 1,
+                            "class tail '$tail' differs from file basename '$base' only by case",
+                            'rename the file to match exactly - works on macOS, breaks on Linux');
+                    }
+                }
+            }
+
+            // block-helper-collision: Block subclass declaring helper() without params
+            if ($isBlock && preg_match('/function\s+helper\s*\(\s*\)/', $src)) {
+                $findings[] = $this->finding('block-helper-collision', 'critical', $rel, 1,
+                    'helper() with no params collides with Mage_Core_Block_Abstract::helper($name) - class fatal-loads silently',
+                    'rename the method (e.g. myHelper())');
+            }
+
+            // route-attributes: controllers must have #[Route] on actions
+            if ($isController && preg_match('/function\s+[a-zA-Z0-9]+Action\s*\(/', $src)
+                && !str_contains($src, '#[Route(')) {
+                $findings[] = $this->finding('route-attributes', 'critical', $rel, 1,
+                    'controller has actions but no #[Maho\\Config\\Route] attributes (legacy XML routing NOTICE on every request)',
+                    'add #[Route(...)] per action + composer dump-autoload');
+            }
+
+            // admin-resource + csrf-forced. Maho's base _isAllowed() checks
+            // static::ADMIN_RESOURCE, so EITHER the const OR an override is
+            // sufficient - only flag when both are absent.
+            if ($isAdminController) {
+                if (!str_contains($src, 'ADMIN_RESOURCE') && !str_contains($src, '_isAllowed')) {
+                    $findings[] = $this->finding('admin-resource', 'critical', $rel, 1,
+                        'admin controller has neither ADMIN_RESOURCE const nor _isAllowed() override (falls back to base resource)',
+                        'add public const ADMIN_RESOURCE = \'<parent>/<resource>\';');
+                }
+                $hasStateActions = (bool) preg_match('/function\s+(save|delete|massDelete|accept|decline|approve|reject)Action/', $src);
+                if ($hasStateActions && !str_contains($src, '_setForcedFormKeyActions')) {
+                    $findings[] = $this->finding('csrf-forced', 'critical', $rel, 1,
+                        'state-changing admin actions without _setForcedFormKeyActions()',
+                        'call it in preDispatch() with the state-changing action list');
+                }
+            }
+        }
+
+        // email-foreach across .html templates
+        foreach ($this->filesByExt($moduleDir, 'html') as $file) {
+            $rel = ltrim(substr($file, strlen($moduleDir)), '/');
+            if (!str_contains($rel, 'template/email')) {
+                continue;
+            }
+            $src = (string) file_get_contents($file);
+            if (str_contains($src, '{{foreach')) {
+                $findings[] = $this->finding('email-foreach', 'warning', $rel, 1,
+                    '{{foreach}} is not supported by Maho\'s email filter (renders literally)',
+                    'pre-render list HTML in PHP and pass as a single *_html var');
+            }
+        }
+
+        return $findings;
+    }
+
+    /** @return array{rule: string, severity: string, file: string, line: int, message: string, fix: string} */
+    private function finding(string $rule, string $severity, string $file, int $line, string $message, string $fix): array
+    {
+        return ['rule' => $rule, 'severity' => $severity, 'file' => $file, 'line' => $line, 'message' => $message, 'fix' => $fix];
+    }
+
+    /** @return list<string> */
+    private function phpFiles(string $dir): array
+    {
+        return $this->filesByExt($dir, 'php');
+    }
+
+    /** @return list<string> */
+    private function filesByExt(string $dir, string $ext): array
+    {
+        $out = [];
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveCallbackFilterIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                static fn(\SplFileInfo $f): bool => $f->getFilename() !== 'vendor' && $f->getFilename() !== '.git',
+            ),
+        );
+        foreach ($it as $file) {
+            if ($file instanceof \SplFileInfo && $file->isFile() && strtolower($file->getExtension()) === $ext) {
+                $out[] = $file->getPathname();
+            }
+        }
+        sort($out, SORT_NATURAL);
+        return $out;
+    }
+}
