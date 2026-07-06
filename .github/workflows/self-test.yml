@@ -1,0 +1,47 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  generate-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Install
+        run: composer install --no-interaction --quiet
+
+      - name: Syntax-check sources
+        run: |
+          set -e
+          find src bin -type f \( -name '*.php' -o -name 'maho-module-gen' \) -print0 \
+            | xargs -0 -n1 php -l > /dev/null
+          echo "sources OK"
+
+      - name: Generate the example spec
+        run: |
+          php bin/maho-module-gen generate specs/example-testimonials.yaml --out /tmp/gen
+
+      - name: Syntax-check generated PHP
+        run: |
+          set -e
+          find /tmp/gen -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+          echo "generated PHP OK"
+
+      - name: Validate generated XML
+        run: |
+          set -e
+          sudo apt-get install -y -q libxml2-utils > /dev/null
+          find /tmp/gen -name '*.xml' -print0 | xargs -0 -n1 xmllint --noout
+          echo "generated XML OK"
+
+      - name: Dogfood - the generated module must pass its own linter
+        run: php bin/maho-module-gen lint /tmp/gen

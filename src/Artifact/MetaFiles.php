@@ -110,6 +110,8 @@ on:
 jobs:
   checks:
     uses: mageaustralia/maho-ci/.github/workflows/module-checks.yml@main
+  lint:
+    uses: mageaustralia/maho-module-generator/.github/workflows/lint.yml@main
 
 YML;
 

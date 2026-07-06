@@ -1,0 +1,43 @@
+name: Module lint (reusable)
+
+# Reusable workflow: call from any Maho module repo to lint it against
+# maho-module-gen's best-practice rules. Fails the job on CRITICAL
+# findings; warnings and nits are printed but don't block.
+#
+#   jobs:
+#     lint:
+#       uses: mageaustralia/maho-module-generator/.github/workflows/lint.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      min-severity:
+        description: Lowest severity to display (critical|warning|nit)
+        type: string
+        default: warning
+      generator-ref:
+        description: Git ref of maho-module-generator to use
+        type: string
+        default: main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Install maho-module-gen
+        run: |
+          git clone --depth 1 --branch "${{ inputs.generator-ref }}" \
+            https://github.com/mageaustralia/maho-module-generator.git /tmp/mmg
+          composer install --no-dev --no-interaction --quiet --working-dir=/tmp/mmg
+
+      - name: Lint
+        run: php /tmp/mmg/bin/maho-module-gen lint . --min-severity "${{ inputs.min-severity }}"

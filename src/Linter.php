@@ -27,7 +27,9 @@ final class Linter
             throw new SpecException("not a directory: $moduleDir");
         }
         $findings = [];
-        foreach ($this->phpFiles($moduleDir) as $file) {
+        $sources = array_merge($this->filesByExt($moduleDir, 'php'), $this->filesByExt($moduleDir, 'phtml'));
+        sort($sources, SORT_NATURAL);
+        foreach ($sources as $file) {
             $rel = ltrim(substr($file, strlen($moduleDir)), '/');
             // Legacy sql/{name}_setup / data/{name}_setup scripts are frozen
             // BC artifacts - they intentionally keep the old APIs so old-core
@@ -37,6 +39,7 @@ final class Linter
             }
             $src = (string) file_get_contents($file);
             $lines = explode("\n", $src);
+            $isPhtml = str_ends_with($rel, '.phtml');
             $isController = str_contains($rel, 'controllers/') && str_ends_with($rel, 'Controller.php');
             $isAdminController = $isController && str_contains($rel, 'Adminhtml');
             $isSchema = str_ends_with($rel, 'sql/schema.php');
@@ -100,15 +103,29 @@ final class Linter
                 }
             }
 
-            // strict-types (file-level)
-            if (!str_contains($src, 'declare(strict_types=1)')) {
+            // strict-types (file-level; templates don't declare it)
+            if (!$isPhtml && !str_contains($src, 'declare(strict_types=1)')) {
                 $findings[] = $this->finding('strict-types', 'warning', $rel, 1,
                     'missing declare(strict_types=1)',
                     'add after the file header');
             }
 
+            // file-header: license + copyright docblock near the top.
+            // Convention: OSL-3.0 for PHP source, AFL-3.0 acceptable for
+            // templates (the Magento-1-era split Maho preserves).
+            // Tests aren't shipped artifacts - header nagging there is noise.
+            $isTest = str_starts_with($rel, 'tests/') || str_contains($rel, '/tests/');
+            $head = substr($src, 0, 600);
+            if (!$isTest && (!str_contains($head, '@license') || !str_contains($head, '@copyright'))) {
+                $findings[] = $this->finding('file-header', $isPhtml ? 'nit' : 'warning', $rel, 1,
+                    'missing @license/@copyright header docblock',
+                    $isPhtml
+                        ? 'add header (AFL-3.0 for templates, per the Magento-1 convention Maho preserves)'
+                        : 'add header (OSL-3.0 for PHP source)');
+            }
+
             // case-mismatch (file-level): every declared class tail must equal the basename
-            if (preg_match_all('/^(?:final\s+|abstract\s+)?class\s+([A-Za-z0-9_]+)/m', $src, $mm)) {
+            if (!$isPhtml && preg_match_all('/^(?:final\s+|abstract\s+)?class\s+([A-Za-z0-9_]+)/m', $src, $mm)) {
                 $base = basename($file, '.php');
                 foreach ($mm[1] as $class) {
                     $tail = str_contains($class, '_') ? substr($class, strrpos($class, '_') + 1) : $class;
