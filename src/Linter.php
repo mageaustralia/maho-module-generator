@@ -95,8 +95,11 @@ final class Linter
                         'addUniqueConstraint drifts against legacy-created tables (differ drops the index; FKs then abort)',
                         'use addUniqueIndex()');
                 }
-                // raw-json (module code, not templates or generated schema)
-                if (!$isSchema && preg_match('/\bjson_(en|de)code\s*\(/', $line)) {
+                // raw-json (module code; not schema, and not tests - fixtures
+                // gain nothing from the helper indirection)
+                if (!$isSchema
+                    && !str_starts_with($rel, 'tests/') && !str_contains($rel, '/tests/')
+                    && preg_match('/\bjson_(en|de)code\s*\(/', $line)) {
                     $findings[] = $this->finding('raw-json', 'nit', $rel, $n,
                         'raw json_encode/json_decode',
                         "Mage::helper('core')->jsonEncode()/jsonDecode() respects module overrides + throws on bad input");
