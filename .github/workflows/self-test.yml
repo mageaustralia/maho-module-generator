@@ -45,3 +45,18 @@ jobs:
 
       - name: Dogfood - the generated module must pass its own linter
         run: php bin/maho-module-gen lint /tmp/gen
+
+      - name: Delta mode - regenerate --into must add 0 files and exit 0
+        run: |
+          set -e
+          out=$(php bin/maho-module-gen generate specs/example-testimonials.yaml --into /tmp/gen)
+          echo "$out" | grep -q "0 file(s) added" || { echo "delta re-run wrote files!"; exit 1; }
+          echo "delta OK"
+
+      - name: Delta mode - --into refuses a non-module dir
+        run: |
+          mkdir -p /tmp/notamodule
+          if php bin/maho-module-gen generate specs/example-testimonials.yaml --into /tmp/notamodule; then
+            echo "guard failed - accepted a non-module dir"; exit 1
+          fi
+          echo "guard OK"

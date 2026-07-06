@@ -29,8 +29,13 @@ final class GenerateCommand extends Command
     {
         $this->addArgument('spec', InputArgument::REQUIRED, 'Path to the YAML spec file');
         $this->addOption('out', 'o', InputOption::VALUE_REQUIRED, 'Output directory (module root)', '.');
+        $this->addOption('into', 'i', InputOption::VALUE_REQUIRED,
+            'Delta mode: add spec artifacts to an EXISTING module dir. Never overwrites; '
+            . 'refuses non-module targets unless --force-new.');
         $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'List files without writing');
-        $this->addOption('force', 'f', InputOption::VALUE_NONE, 'Overwrite existing files');
+        $this->addOption('force', 'f', InputOption::VALUE_NONE, 'Overwrite existing files (not allowed with --into)');
+        $this->addOption('force-new', null, InputOption::VALUE_NONE,
+            'With --into: allow a target directory that does not look like a module yet');
     }
 
     #[\Override]
@@ -44,9 +49,28 @@ final class GenerateCommand extends Command
             return Command::FAILURE;
         }
 
-        $outDir = rtrim((string) $input->getOption('out'), '/');
+        $into = $input->getOption('into');
+        $deltaMode = $into !== null && $into !== '';
+        $outDir = rtrim((string) ($deltaMode ? $into : $input->getOption('out')), '/');
         $dryRun = (bool) $input->getOption('dry-run');
         $force = (bool) $input->getOption('force');
+
+        if ($deltaMode) {
+            if ($force) {
+                $output->writeln('<error>--force cannot be combined with --into (delta mode never overwrites)</error>');
+                return Command::FAILURE;
+            }
+            // Guard: --into targets an existing module. A bare/foreign directory
+            // is almost always a typo - demand --force-new to proceed.
+            $looksLikeModule = is_file("$outDir/composer.json") || is_dir("$outDir/app");
+            if (!$looksLikeModule && !$input->getOption('force-new')) {
+                $output->writeln(
+                    "<error>$outDir does not look like a module (no composer.json or app/). "
+                    . 'Use --out for a fresh module, or pass --force-new to proceed anyway.</error>',
+                );
+                return Command::FAILURE;
+            }
+        }
 
         $written = 0;
         $skipped = 0;
@@ -73,12 +97,21 @@ final class GenerateCommand extends Command
 
         if (!$dryRun) {
             $output->writeln('');
-            $output->writeln(sprintf(
-                '<info>%s: %d file(s) written%s</info>',
-                $spec->moduleName(),
-                $written,
-                $skipped ? ", $skipped skipped (use --force to overwrite)" : '',
-            ));
+            if ($deltaMode) {
+                $output->writeln(sprintf(
+                    '<info>%s (delta): %d file(s) added, %d already present (untouched)</info>',
+                    $spec->moduleName(),
+                    $written,
+                    $skipped,
+                ));
+            } else {
+                $output->writeln(sprintf(
+                    '<info>%s: %d file(s) written%s</info>',
+                    $spec->moduleName(),
+                    $written,
+                    $skipped ? ", $skipped skipped (use --force to overwrite)" : '',
+                ));
+            }
             $output->writeln('Next: composer dump-autoload && ./maho migrate && ./maho cache:flush');
         }
         return Command::SUCCESS;

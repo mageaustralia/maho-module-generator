@@ -82,6 +82,12 @@ TPL, ['Col' => $secondaryCol]);
         $out["app/design/frontend/base/default/template/$templateDir/list.phtml"] = Tpl::render(<<<'TPL'
 <?php
 /**
+ * Maho
+ *
+ * @package    {{Prefix}}
+ * @copyright  Copyright (c) {{Year}} {{Copyright}}
+ * @license    https://opensource.org/licenses/AFL-3.0  Academic Free License (AFL 3.0)
+ *
  * @var {{Prefix}}_Block_{{EntityClass}}List $this
  */
 $collection = $this->getCollection();
@@ -106,6 +112,8 @@ TPL, [
             'EntityClass' => $entityClass,
             'FrontName' => $frontName,
             'EntityLabelPlural' => $entityLabelPlural,
+            'Year' => (int) date('Y'),
+            'Copyright' => $spec->module['copyright'],
             'PrimaryCol' => $primaryCol,
             'SecondaryHtml' => $secondaryHtml,
         ]);
