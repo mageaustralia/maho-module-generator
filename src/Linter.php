@@ -147,9 +147,13 @@ final class Linter
                     'rename the method (e.g. myHelper())');
             }
 
-            // route-attributes: controllers must have #[Route] on actions
+            // route-attributes: controllers must have #[Route] on actions.
+            // Accept every spelling: imported `#[Route(`, fully-qualified
+            // `#[\Maho\Config\Route(` / `#[Maho\Config\Route(` - matching on
+            // the short form only produced false criticals on modules using
+            // the FQ attribute syntax.
             if ($isController && preg_match('/function\s+[a-zA-Z0-9]+Action\s*\(/', $src)
-                && !str_contains($src, '#[Route(')) {
+                && !preg_match('/#\[\\\\?(Maho\\\\Config\\\\)?Route\(/', $src)) {
                 $findings[] = $this->finding('route-attributes', 'critical', $rel, 1,
                     'controller has actions but no #[Maho\\Config\\Route] attributes (legacy XML routing NOTICE on every request)',
                     'add #[Route(...)] per action + composer dump-autoload');
