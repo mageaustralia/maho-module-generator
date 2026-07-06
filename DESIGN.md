@@ -138,7 +138,7 @@ produces metadata that round-trips. The generator only ever emits
 
 ## Spec format
 
-See `specs/example-widgets.yaml` for the full annotated reference.
+See `specs/example-testimonials.yaml` for the full annotated reference.
 Design rules for the format itself:
 
 - Unknown keys are **fatal**, not ignored - a typo like `uniqe:` should
