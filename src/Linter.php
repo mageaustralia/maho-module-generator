@@ -177,6 +177,17 @@ final class Linter
             }
         }
 
+        // acl-resource-mismatch: cross-file check. ADMIN_RESOURCE / isAllowed()
+        // literals in admin controllers must correspond to ACL paths actually
+        // declared in the module's etc/adminhtml.xml. Only NEAR-MISSES are
+        // flagged (same path ignoring underscores/case but not literally equal,
+        // e.g. notfound_log vs notfoundlog) - a resource with no similar
+        // declared path may legitimately live in another module's ACL, so
+        // exact-absence is not evidence of a bug. This bug class is nasty
+        // because full admins (unrestricted) never notice: only role-limited
+        // admins hit the nonexistent resource and can never be granted access.
+        $findings = array_merge($findings, $this->lintAclResources($moduleDir));
+
         // email-foreach across .html templates
         foreach ($this->filesByExt($moduleDir, 'html') as $file) {
             $rel = ltrim(substr($file, strlen($moduleDir)), '/');
@@ -191,6 +202,91 @@ final class Linter
             }
         }
 
+        return $findings;
+    }
+
+    /**
+     * Cross-file ACL consistency + menu-location checks.
+     *
+     * @return list<array{rule: string, severity: string, file: string, line: int, message: string, fix: string}>
+     */
+    private function lintAclResources(string $moduleDir): array
+    {
+        $findings = [];
+        $xmlFiles = $this->filesByExt($moduleDir, 'xml');
+
+        // menu-location: Maho's admin menu builder reads adminhtml.xml ONLY.
+        // A <menu> (or <acl>) block inside config.xml <adminhtml> is silently
+        // ignored - the menu simply never renders, with no error anywhere.
+        foreach ($xmlFiles as $file) {
+            if (basename($file) !== 'config.xml') {
+                continue;
+            }
+            $src = (string) file_get_contents($file);
+            $rel = ltrim(substr($file, strlen($moduleDir)), '/');
+            if (preg_match('/<adminhtml>.*?<(menu|acl)>/s', $src, $m)) {
+                $findings[] = $this->finding('menu-location', 'critical', $rel, 1,
+                    "<{$m[1]}> declared inside config.xml <adminhtml> - Maho ignores it (menu never renders / ACL never registers)",
+                    'move the <menu> and <acl> blocks into etc/adminhtml.xml');
+            }
+        }
+
+        // Declared ACL paths from adminhtml.xml
+        $declared = [];
+        foreach ($xmlFiles as $file) {
+            if (basename($file) !== 'adminhtml.xml') {
+                continue;
+            }
+            $xml = @simplexml_load_file($file);
+            if ($xml === false || !isset($xml->acl->resources->admin)) {
+                continue;
+            }
+            $walk = function (\SimpleXMLElement $node, string $prefix) use (&$walk, &$declared): void {
+                if (!isset($node->children)) {
+                    return;
+                }
+                foreach ($node->children->children() as $name => $child) {
+                    $path = ltrim("$prefix/$name", '/');
+                    $declared[$path] = true;
+                    $walk($child, $path);
+                }
+            };
+            $walk($xml->acl->resources->admin, '');
+        }
+        if ($declared === []) {
+            return $findings;
+        }
+        $normalise = static fn(string $p): string => strtolower(str_replace(['_', '-'], '', $p));
+        $declaredNorm = [];
+        foreach (array_keys($declared) as $p) {
+            $declaredNorm[$normalise($p)] = $p;
+        }
+
+        // Referenced resources from admin controller PHP
+        foreach ($this->filesByExt($moduleDir, 'php') as $file) {
+            $rel = ltrim(substr($file, strlen($moduleDir)), '/');
+            if (!str_contains($rel, 'controllers/') || !str_contains($rel, 'Adminhtml')) {
+                continue;
+            }
+            $src = (string) file_get_contents($file);
+            preg_match_all('/ADMIN_RESOURCE\s*=\s*[\'"]([^\'"]+)[\'"]|isAllowed\(\s*[\'"]([^\'"]+)[\'"]/', $src, $mm, PREG_SET_ORDER);
+            foreach ($mm as $m) {
+                $resource = ltrim(($m[1] !== '' ? $m[1] : ($m[2] ?? '')), '/');
+                $resource = preg_replace('/^admin\//', '', $resource) ?? $resource;
+                if ($resource === '' || isset($declared[$resource])) {
+                    continue; // exact match - fine
+                }
+                // Near-miss: same path ignoring underscores/hyphens/case.
+                // (A resource with NO similar declared path may live in
+                // another module's ACL - not flaggable from here.)
+                $near = $declaredNorm[$normalise($resource)] ?? null;
+                if ($near !== null && $near !== $resource) {
+                    $findings[] = $this->finding('acl-resource-mismatch', 'critical', $rel, 1,
+                        "controller references ACL resource '$resource' but adminhtml.xml declares '$near' - role-restricted admins can never be granted access",
+                        'align the ADMIN_RESOURCE / isAllowed() literal with the declared ACL node exactly');
+                }
+            }
+        }
         return $findings;
     }
 
